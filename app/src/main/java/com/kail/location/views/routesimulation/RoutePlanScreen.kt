@@ -244,7 +244,7 @@ fun RoutePlanScreen(
 
             if (waypoints.isNotEmpty()) {
                 val start = waypoints.first()
-                val startDesc = bitmapDescriptorFromVector(context, R.drawable.icon_gcoding, AndroidColor.WHITE)
+                val startDesc = bitmapDescriptorFromVector(context, R.drawable.icon_gcoding, AndroidColor.GREEN)
                 if (startDesc != null) {
                     startMarkerOverlay = map.addOverlay(
                         MarkerOptions().position(start).icon(startDesc).zIndex(8).draggable(false)
@@ -252,15 +252,6 @@ fun RoutePlanScreen(
                 }
             }
 
-            if (waypoints.size >= 2) {
-                val end = waypoints.last()
-                val endDesc = bitmapDescriptorFromVector(context, R.drawable.icon_gcoding, AndroidColor.RED)
-                if (endDesc != null) {
-                    endMarkerOverlay = map.addOverlay(
-                        MarkerOptions().position(end).icon(endDesc).zIndex(8).draggable(false)
-                    )
-                }
-            }
         }
     }
 
@@ -400,7 +391,7 @@ fun RoutePlanScreen(
                 when (markingPhase) {
                     MarkingPhase.Preview -> {
                         Image(
-                            painter = painterResource(id = R.drawable.ic_position),
+                            painter = painterResource(id = R.drawable.icon_gcoding),
                             contentDescription = null,
                             modifier = Modifier
                                 .align(Alignment.Center)
@@ -410,7 +401,7 @@ fun RoutePlanScreen(
                     }
                     MarkingPhase.Active -> {
                         Image(
-                            painter = painterResource(id = R.drawable.ic_position),
+                            painter = painterResource(id = R.drawable.icon_gcoding),
                             contentDescription = null,
                             modifier = Modifier
                                 .align(Alignment.Center)
