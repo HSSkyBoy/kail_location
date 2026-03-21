@@ -10,6 +10,8 @@
 
 #define LIBSF_PATH_64 "/system/lib64/libsensorservice.so"
 #define LIBSF_PATH_32 "/system/lib/libsensorservice.so"
+#define LIBS_PATH_64 "/system/lib64/libsensor.so"
+#define LIBS_PATH_32 "/system/lib/libsensor.so"
 
 extern bool enableSensorHook;
 
@@ -26,95 +28,112 @@ int64_t SensorEventQueueWrite(void *tube, void *events, int64_t numEvents) {
 }
 
 void ConvertToSensorEvent(void *src, void *dst) {
+    // 无论是否开启 Hook，始终先调用原始函数以确保结构体被正确初始化
+    OriginalConvertToSensorEvent(src, dst);
+
     if (enableSensorHook) {
-        auto a = *(int32_t *)((char*)src + 4);
-        auto b = *(int32_t *)((char*)src + 8);
-        auto c = *(int64_t *)((char*)src + 16);
+        // 从已初始化的 dst 中获取类型 (偏移 12 字节)
+        auto type = *(int32_t *)((char*)dst + 12);
+        auto handle = *(int32_t *)((char*)dst + 8);
 
-        LOGD("ConvertToSensorEvent: handle=%d, type=%d, timestamp=%lld", a, b, (long long)c);
+        LOGD("ConvertToSensorEvent (Hooked): handle=%d, type=%d", handle, type);
 
-        // 打印原始数据 (src 内存中的前 64 字节)
-        char raw_hex[256] = {0};
-        for (int i = 0; i < 64; i++) {
-            sprintf(raw_hex + i * 3, "%02X ", *((unsigned char*)src + i));
+        // 根据传感器类型修改数据
+        switch (type) {
+            case 18: // SENSOR_TYPE_STEP_DETECTOR
+                *(float *)((char*)dst + 16) = 1.0f; // 步数检测通常返回 1.0
+                LOGD("Sensor Data (Type 18): modified to 1.0");
+                break;
+            case 19: // SENSOR_TYPE_STEP_COUNTER
+                *(uint64_t *)((char*)dst + 16) = 99999; // 步数计数器返回累计步数
+                LOGD("Sensor Data (Type 19): modified to 99999");
+                break;
+            case 5:  // SENSOR_TYPE_LIGHT (光线传感器)
+                *(float *)((char*)dst + 16) = 100.0f; // 设置一个正常的光照强度 (100 lux)
+                LOGD("Sensor Data (Type 5): modified to 100.0 (preventing crash)");
+                break;
+            case 8:  // SENSOR_TYPE_PROXIMITY (距离传感器)
+                *(float *)((char*)dst + 16) = 5.0f; // 设置为“远”状态 (5.0 cm)
+                LOGD("Sensor Data (Type 8): modified to 5.0");
+                break;
+            case 1:  // SENSOR_TYPE_ACCELEROMETER
+            case 4:  // SENSOR_TYPE_GYROSCOPE
+            case 9:  // SENSOR_TYPE_GRAVITY
+            case 10: // SENSOR_TYPE_LINEAR_ACCELERATION
+                *(float *)((char*)dst + 16) = 0.0f;
+                *(float *)((char*)dst + 20) = 0.0f;
+                *(float *)((char*)dst + 24) = 0.0f;
+                LOGD("Sensor Data (Type %d): XYZ axes zeroed", type);
+                break;
+            default:
+                // 其他传感器不建议盲目设为 -1.0，尤其是某些系统服务强依赖的传感器
+                // 如果需要屏蔽，可以设为 0 或保持原样
+                break;
         }
-        LOGD("Raw SRC Data (HEX): %s", raw_hex);
-
-        // 尝试以 float 解释常见的数据段 (通常数据在 24 字节之后)
-        float v0 = *(float *)((char*)src + 24);
-        float v1 = *(float *)((char*)src + 28);
-        float v2 = *(float *)((char*)src + 32);
-        LOGD("Raw SRC Data (Float Interpretation): v[0]=%.4f, v[1]=%.4f, v[2]=%.4f", v0, v1, v2);
-
-        *(int64_t *)((char*)dst + 16) = 0LL;
-        *(int32_t *)((char*)dst + 24) = 0;
-        *(int64_t *)((char*)dst) = c;
-        *(int32_t *)((char*)dst + 8) = a;
-        *(int32_t *)((char*)dst + 12) = b;
-        *(int8_t *)((char*)dst + 28) = b;
-
-        if (b == 18) {
-            *(float *)((char*)dst + 16) = -1.0;
-            LOGD("Sensor Data (Type 18): step_count=-1.0");
-        } else if (b == 19) {
-            *(int64_t *)((char*)dst + 16) = -1;
-            LOGD("Sensor Data (Type 19): step_detector=-1");
-        } else {
-            *(float *)((char*)dst + 16) = -1.0;
-            *(float *)((char*)dst + 24) = -1.0;
-            *(int8_t *)((char*)dst + 28) = *(int8_t *)((char*)src + 36);
-            LOGD("Sensor Data (Type %d): data[0]=-1.0, data[1]=-1.0", b);
-        }
-    } else {
-        OriginalConvertToSensorEvent(src, dst);
     }
 }
 
 void doSensorHook() {
-    const char* path = LIBSF_PATH_64;
-    if (access(path, F_OK) != 0) {
-        path = LIBSF_PATH_32;
+    const char* sfPath = LIBSF_PATH_64;
+    if (access(sfPath, F_OK) != 0) {
+        sfPath = LIBSF_PATH_32;
     }
 
-    if (access(path, F_OK) != 0) {
-        // 在非系统服务进程中，这个报错是正常的，改为日志打印
-        LOGD("libsensorservice.so not found in standard paths, skipping hook (likely not in system_server)");
-        return;
+    const char* sPath = LIBS_PATH_64;
+    if (access(sPath, F_OK) != 0) {
+        sPath = LIBS_PATH_32;
     }
 
-    SandHook::ElfImg sensorService(path);
+    // 1. 从 libsensor.so 加载 SensorEventQueue::write
+    if (access(sPath, F_OK) == 0) {
+        SandHook::ElfImg sensorLib(sPath);
+        if (sensorLib.isValid()) {
+            auto sensorWrite = sensorLib.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS_2spINS_7BitTubeEEEPK12ASensorEventm");
+            if (sensorWrite == nullptr) {
+                sensorWrite = sensorLib.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS_2spINS_7BitTubeEEEPK12ASensorEventj");
+            }
+            if (sensorWrite == nullptr) {
+                sensorWrite = sensorLib.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS_2spINS_7BitTubeEEEPK12ASensorEventy");
+            }
+            // 增加用户提供的特定符号变体 (无下划线版本和 RKNS2sp 版本)
+            if (sensorWrite == nullptr) {
+                sensorWrite = sensorLib.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS2spINS_7BitTubeEEEPK12ASensorEventm");
+            }
+            if (sensorWrite == nullptr) {
+                sensorWrite = sensorLib.getSymbolAddress<void*>("ZN7android16SensorEventQueue5writeERKNS2spINS_7BitTubeEEEPK12ASensorEventm");
+            }
+            if (sensorWrite == nullptr) {
+                sensorWrite = sensorLib.getSymbolAddressByPrefix<void*>("_ZN7android16SensorEventQueue5write");
+            }
 
-    if (!sensorService.isValid()) {
-        // 在应用进程中，没有权限读取 /proc/self/maps 或系统库是正常的
-        LOGD("failed to load %s via ElfImg (likely missing permissions or not loaded in this process)", path);
-        return;
+            LOGD("Dobby SensorEventQueue::write found at %p in %s", sensorWrite, sPath);
+            if (sensorWrite != nullptr) {
+                OriginalSensorEventQueueWrite = (OriginalSensorEventQueueWriteType)InlineHook(sensorWrite, (void *)SensorEventQueueWrite);
+            }
+        } else {
+            LOGD("failed to load %s via ElfImg", sPath);
+        }
+    } else {
+        LOGD("libsensor.so not found, skipping SensorEventQueue::write hook");
     }
 
-    auto sensorWrite = sensorService.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS_2spINS_7BitTubeEEEPK12ASensorEventm");
-    if (sensorWrite == nullptr) {
-        sensorWrite = sensorService.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS_2spINS_7BitTubeEEEPK12ASensorEventj");
-    }
-    if (sensorWrite == nullptr) {
-        sensorWrite = sensorService.getSymbolAddress<void*>("_ZN7android16SensorEventQueue5writeERKNS_2spINS_7BitTubeEEEPK12ASensorEventy");
-    }
-    // 前缀查找 fallback: 如果不同 Android 版本的符号修饰不同，尝试模糊查找
-    if (sensorWrite == nullptr) {
-        sensorWrite = sensorService.getSymbolAddressByPrefix<void*>("_ZN7android16SensorEventQueue5write");
-    }
+    // 2. 从 libsensorservice.so 加载 convertToSensorEvent
+    if (access(sfPath, F_OK) == 0) {
+        SandHook::ElfImg sensorService(sfPath);
+        if (sensorService.isValid()) {
+            auto convertToSensorEvent = sensorService.getSymbolAddress<void*>("_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEventERKNS2_5EventEP15sensors_event_t");
+            if (convertToSensorEvent == nullptr) {
+                convertToSensorEvent = sensorService.getSymbolAddressByPrefix<void*>("_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEvent");
+            }
 
-    auto convertToSensorEvent = sensorService.getSymbolAddress<void*>("_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEventERKNS2_5EventEP15sensors_event_t");
-    if (convertToSensorEvent == nullptr) {
-        convertToSensorEvent = sensorService.getSymbolAddressByPrefix<void*>("_ZN7android8hardware7sensors4V1_014implementation20convertToSensorEvent");
-    }
-
-    LOGD("Dobby SensorEventQueue::write found at %p", sensorWrite);
-    LOGD("Dobby convertToSensorEvent found at %p", convertToSensorEvent);
-
-    if (sensorWrite != nullptr) {
-        OriginalSensorEventQueueWrite = (OriginalSensorEventQueueWriteType)InlineHook(sensorWrite, (void *)SensorEventQueueWrite);
-    }
-
-    if (convertToSensorEvent != nullptr) {
-        OriginalConvertToSensorEvent = (OriginalConvertToSensorEventType)InlineHook(convertToSensorEvent, (void *)ConvertToSensorEvent);
+            LOGD("Dobby convertToSensorEvent found at %p in %s", convertToSensorEvent, sfPath);
+            if (convertToSensorEvent != nullptr) {
+                OriginalConvertToSensorEvent = (OriginalConvertToSensorEventType)InlineHook(convertToSensorEvent, (void *)ConvertToSensorEvent);
+            }
+        } else {
+            LOGD("failed to load %s via ElfImg", sfPath);
+        }
+    } else {
+        LOGD("libsensorservice.so not found, skipping convertToSensorEvent hook");
     }
 }
