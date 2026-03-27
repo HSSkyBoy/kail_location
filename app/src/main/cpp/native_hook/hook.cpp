@@ -1,3 +1,5 @@
+#include <jni.h>
+
 #include <android/log.h>
 #include <dlfcn.h>
 #include <unistd.h>
@@ -5,7 +7,7 @@
 #include <string>
 #include <vector>
 #include <dobby.h>
-#include <jni.h>
+
 #include "sensor_simulator.h"
 
 #define LOG_TAG "NativeHook"
@@ -33,11 +35,15 @@ extern "C" bool hooked_threadLoop(void* this_ptr);
 // ============================================================================
 
 static void* resolve_symbol(const char* lib, const char* symbol) {
+    ALOGI("Resolving symbol: %s from %s", symbol, lib);
+    
     void* handle = dlopen(lib, RTLD_NOW);
     if (!handle) {
         ALOGE("dlopen %s failed: %s", lib, dlerror());
         return nullptr;
     }
+    
+    ALOGI("dlopen succeeded, now dlsym...");
     
     void* sym = dlsym(handle, symbol);
     if (!sym) {
@@ -45,7 +51,7 @@ static void* resolve_symbol(const char* lib, const char* symbol) {
         return nullptr;
     }
     
-    ALOGD("Resolved %s -> %p", symbol, sym);
+    ALOGI("Resolved %s -> %p", symbol, sym);
     return sym;
 }
 

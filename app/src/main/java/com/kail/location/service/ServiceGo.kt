@@ -724,7 +724,9 @@ class ServiceGo : Service() {
         portalRandomKey = key
 
         // 初始化 SO 加载
-        portalLoadNativeLibraryIfNeeded()
+        KailLog.i(this, "ServiceGo", ">>> Calling portalLoadNativeLibraryIfNeeded...")
+        val nativeLoadResult = portalLoadNativeLibraryIfNeeded()
+        KailLog.i(this, "ServiceGo", ">>> portalLoadNativeLibraryIfNeeded result: $nativeLoadResult")
 
         return true
     }
@@ -735,10 +737,18 @@ class ServiceGo : Service() {
      * - 通过 portal 发送 load_library 命令
      */
     private fun portalLoadNativeLibraryIfNeeded(): Boolean {
-        if (!com.kail.location.utils.ShellUtils.hasRoot()) return false
+        KailLog.i(this, "ServiceGo", ">>> portalLoadNativeLibraryIfNeeded called")
+        
+        if (!com.kail.location.utils.ShellUtils.hasRoot()) {
+            KailLog.e(this, "ServiceGo", ">>> No root access!")
+            return false
+        }
+        
+        KailLog.i(this, "ServiceGo", ">>> Root access OK")
 
         // 尝试彻底关闭 SELinux 强制模式 (参考 Portal 的思路)
-        com.kail.location.utils.ShellUtils.executeCommand("setenforce 0")
+        val selinuxResult = com.kail.location.utils.ShellUtils.executeCommand("setenforce 0")
+        KailLog.i(this, "ServiceGo", ">>> setenforce 0 result: $selinuxResult")
 
         val soDir = java.io.File("/data/local/kail-lib")
         // 彻底清理并重建目录，确保权限和上下文
@@ -746,26 +756,39 @@ class ServiceGo : Service() {
         com.kail.location.utils.ShellUtils.executeCommand("mkdir -p ${soDir.absolutePath}")
         com.kail.location.utils.ShellUtils.executeCommand("chmod 777 ${soDir.absolutePath}")
         com.kail.location.utils.ShellUtils.executeCommand("chcon u:object_r:system_file:s0 ${soDir.absolutePath}")
+        KailLog.i(this, "ServiceGo", ">>> Directory created: ${soDir.absolutePath}")
         
         val soFile = java.io.File(soDir, "libkail_native_hook.so")
 
         runCatching {
             val nativeDir = applicationInfo.nativeLibraryDir
             val apkSoFile = java.io.File(nativeDir, "libkail_native_hook.so")
+            KailLog.i(this, "ServiceGo", ">>> nativeDir: $nativeDir")
+            KailLog.i(this, "ServiceGo", ">>> apkSoFile: ${apkSoFile.absolutePath}, exists: ${apkSoFile.exists()}")
+            
             if (apkSoFile.exists()) {
-                com.kail.location.utils.ShellUtils.executeCommand("cp ${apkSoFile.absolutePath} ${soFile.absolutePath}")
-                com.kail.location.utils.ShellUtils.executeCommand("chmod 777 ${soFile.absolutePath}")
+                val copyResult = com.kail.location.utils.ShellUtils.executeCommand("cp ${apkSoFile.absolutePath} ${soFile.absolutePath}")
+                KailLog.i(this, "ServiceGo", ">>> cp result: $copyResult")
+                val chmodResult = com.kail.location.utils.ShellUtils.executeCommand("chmod 777 ${soFile.absolutePath}")
+                KailLog.i(this, "ServiceGo", ">>> chmod result: $chmodResult")
                 // 修复 SELinux 上下文，使其可被系统进程执行 (参考 Portal 类似工具的实践)
-                com.kail.location.utils.ShellUtils.executeCommand("chcon u:object_r:system_file:s0 ${soFile.absolutePath}")
+                val chconResult = com.kail.location.utils.ShellUtils.executeCommand("chcon u:object_r:system_file:s0 ${soFile.absolutePath}")
+                KailLog.i(this, "ServiceGo", ">>> chcon result: $chconResult")
+            } else {
+                KailLog.e(this, "ServiceGo", ">>> apkSoFile does NOT exist!")
             }
         }.onFailure {
-            KailLog.e(this, "ServiceGo", "Failed to copy native library: ${it.message}")
+            KailLog.e(this, "ServiceGo", ">>> Failed to copy native library: ${it.message}")
             return false
         }
 
+        KailLog.i(this, "ServiceGo", ">>> soFile exists: ${soFile.exists()}")
+        
         val loadResult = portalSend("load_library") {
             putString("path", soFile.absolutePath)
         }
+        
+        KailLog.i(this, "ServiceGo", ">>> loadResult: $loadResult")
         
         // Send gait params after library loaded
         if (loadResult) {
@@ -774,7 +797,9 @@ class ServiceGo : Service() {
                 putInt("mode", 0)
                 putBoolean("enable", stepEnabledCache)
             }
-            KailLog.i(this, "ServiceGo", "Native hook loaded and gait params sent")
+            KailLog.i(this, "ServiceGo", ">>> Native hook loaded and gait params sent")
+        } else {
+            KailLog.e(this, "ServiceGo", ">>> Load failed!")
         }
         
         return loadResult

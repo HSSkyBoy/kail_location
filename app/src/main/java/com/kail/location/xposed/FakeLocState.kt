@@ -95,6 +95,7 @@ internal object FakeLocState {
      * Set gait parameters for native hook
      */
     fun setGaitParams(spm: Float, mode: Int, enable: Boolean) {
+        android.util.Log.i("NativeHook", "setGaitParams called: spm=$spm, mode=$mode, enable=$enable")
         stepCadenceSpmRef.set(spm)
         gaitModeRef.set(mode)
         stepEnabledRef.set(enable)
@@ -102,10 +103,14 @@ internal object FakeLocState {
         if (nativeLibraryLoaded) {
             try {
                 nativeSetGaitParams(spm, mode, enable)
+                android.util.Log.i("NativeHook", "nativeSetGaitParams succeeded")
                 Log.i(TAG, "Native gait params set: spm=$spm, mode=$mode, enable=$enable")
             } catch (e: Exception) {
+                android.util.Log.e("NativeHook", "nativeSetGaitParams failed: ${e.message}")
                 Log.e(TAG, "Failed to set native gait params: ${e.message}")
             }
+        } else {
+            android.util.Log.w("NativeHook", "nativeLibraryLoaded is false, cannot set params")
         }
     }
 
@@ -116,27 +121,38 @@ internal object FakeLocState {
         return try {
             val file = File(path)
             if (!file.exists()) {
+                android.util.Log.e("NativeHook", "File not found: $path")
                 Pair(false, "File not found: $path")
             } else {
                 // Try to load the library using system server's loader
                 // This is done via reflection or direct System.load
+                android.util.Log.i("NativeHook", "Loading library from: $path")
                 System.load(path)
                 nativeLibraryLoaded = true
+                android.util.Log.i("NativeHook", "Library loaded, now calling nativeSetGaitParams...")
                 Log.i(TAG, "Native library loaded successfully: $path")
                 
                 // Initialize with current params
+                val spm = stepCadenceSpmRef.get()
+                val mode = gaitModeRef.get()
+                val enabled = stepEnabledRef.get()
+                android.util.Log.i("NativeHook", "Calling nativeSetGaitParams: spm=$spm, mode=$mode, enable=$enabled")
+                
                 nativeSetGaitParams(
-                    stepCadenceSpmRef.get(),
-                    gaitModeRef.get(),
-                    stepEnabledRef.get()
+                    spm,
+                    mode,
+                    enabled
                 )
                 
+                android.util.Log.i("NativeHook", "nativeSetGaitParams called successfully")
                 Pair(true, "Library loaded: $path")
             }
         } catch (e: UnsatisfiedLinkError) {
+            android.util.Log.e("NativeHook", "UnsatisfiedLinkError: ${e.message}")
             Log.e(TAG, "Failed to load native library: ${e.message}")
             Pair(false, "Load failed: ${e.message}")
         } catch (e: Exception) {
+            android.util.Log.e("NativeHook", "Exception: ${e.message}")
             Log.e(TAG, "Error loading native library: ${e.message}")
             Pair(false, "Error: ${e.message}")
         }

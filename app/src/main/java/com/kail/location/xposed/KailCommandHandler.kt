@@ -119,10 +119,13 @@ internal object KailCommandHandler {
                     out.putBoolean("ok", result.first)
                     out.putString("result", result.second)
                     KailLog.d(null, "XPOSED", "PORTAL接收：加载SO库 path=$path result=${result.second}")
+                    // Also log to main tag for easier filtering
+                    android.util.Log.i("NativeHook", "Library load result: ${result.first}, ${result.second}")
                 } catch (e: Throwable) {
                     out.putBoolean("ok", false)
                     out.putString("result", e.message ?: "unknown error")
                     KailLog.e(null, "XPOSED", "PORTAL接收：加载SO库失败 path=$path error=${e.message}")
+                    android.util.Log.e("NativeHook", "Library load error: ${e.message}")
                 }
                 return true
             }
