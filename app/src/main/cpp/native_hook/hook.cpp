@@ -15,8 +15,8 @@
 #define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Symbol names
-static constexpr const char* kSensorServiceLib = "libsensorservice.so";
+// Symbol names - not used anymore, kept for reference
+// static constexpr const char* kSensorServiceLib = "libsensorservice.so";
 static constexpr const char* kThreadLoopSymbol = "_ZN7android13SensorService9threadLoopEv";
 
 // Original function pointer type
@@ -35,24 +35,52 @@ extern "C" bool hooked_threadLoop(void* this_ptr);
 // ============================================================================
 
 static void* resolve_symbol(const char* lib, const char* symbol) {
-    ALOGI("Resolving symbol: %s from %s", symbol, lib);
+    ALOGI("Resolving symbol: %s (trying multiple methods)", symbol);
     
-    void* handle = dlopen(lib, RTLD_NOW);
-    if (!handle) {
-        ALOGE("dlopen %s failed: %s", lib, dlerror());
-        return nullptr;
+    // Method 1: Try RTLD_DEFAULT - searches in load order
+    void* sym = dlsym(RTLD_DEFAULT, symbol);
+    if (sym) {
+        ALOGI("Found %s via RTLD_DEFAULT -> %p", symbol, sym);
+        return sym;
     }
     
-    ALOGI("dlopen succeeded, now dlsym...");
-    
-    void* sym = dlsym(handle, symbol);
-    if (!sym) {
-        ALOGE("dlsym %s failed: %s", symbol, dlerror());
-        return nullptr;
+    // Method 2: Try RTLD_NEXT - searches next library
+    sym = dlsym(RTLD_NEXT, symbol);
+    if (sym) {
+        ALOGI("Found %s via RTLD_NEXT -> %p", symbol, sym);
+        return sym;
     }
     
-    ALOGI("Resolved %s -> %p", symbol, sym);
-    return sym;
+    // Method 3: Try dlopen with namespace workaround
+    ALOGI("Trying dlopen with workaround...");
+    
+    // Try common system library paths
+    const char* paths[] = {
+        "/system/lib64/libsensorservice.so",
+        "/vendor/lib64/libsensorservice.so",
+        "/system/lib64/libandroid_sensors.so"
+    };
+    
+    void* handle = nullptr;
+    
+    for (const char* path : paths) {
+        ALOGI("Trying to dlopen: %s", path);
+        handle = dlopen(path, RTLD_NOW);
+        if (handle) {
+            ALOGI("dlopen %s succeeded", path);
+            sym = dlsym(handle, symbol);
+            if (sym) {
+                ALOGI("Found %s in %s -> %p", symbol, path, sym);
+                return sym;
+            }
+            dlclose(handle);
+        } else {
+            ALOGI("dlopen %s failed: %s", path, dlerror());
+        }
+    }
+    
+    ALOGE("Failed to resolve symbol: %s", symbol);
+    return nullptr;
 }
 
 // ============================================================================
@@ -181,18 +209,24 @@ Java_com_kail_location_xposed_FakeLocState_nativeReloadConfig(
 // ============================================================================
 
 static bool install_hook() {
+    ALOGI("========================================");
     ALOGI("Installing SensorService::threadLoop hook...");
+    ALOGI("========================================");
     
-    // Resolve symbol
-    void* thread_loop_addr = resolve_symbol(kSensorServiceLib, kThreadLoopSymbol);
+    // Resolve symbol - just pass symbol name, lib is handled internally
+    void* thread_loop_addr = resolve_symbol(nullptr, kThreadLoopSymbol);
     if (!thread_loop_addr) {
-        ALOGE("Failed to resolve threadLoop symbol");
+        ALOGE("Failed to resolve threadLoop symbol!");
+        ALOGE("Hook installation ABORTED");
         return false;
     }
+    
+    ALOGI("threadLoop address: %p", thread_loop_addr);
     
     original_thread_loop = reinterpret_cast<ThreadLoopFunc>(thread_loop_addr);
     
     // Install Dobby hook
+    ALOGI("Calling DobbyHook...");
     int ret = DobbyHook(
         thread_loop_addr,
         reinterpret_cast<void*>(&hooked_threadLoop),
@@ -201,10 +235,12 @@ static bool install_hook() {
     
     if (ret != 0) {
         ALOGE("DobbyHook failed: %d", ret);
+        ALOGE("Hook installation FAILED");
         return false;
     }
     
     ALOGI("DobbyHook installed successfully!");
+    ALOGI("========================================");
     hook_installed = true;
     return true;
 }
@@ -216,22 +252,27 @@ static bool install_hook() {
 __attribute__((constructor))
 static void native_hook_init() {
     ALOGI("========================================");
-    ALOGI("Native Hook Library Loading...");
+    ALOGI("Native Hook Library Loading (constructor)...");
     ALOGI("========================================");
     
     // Initialize sensor simulator
+    ALOGI("Initializing SensorSimulator...");
     gait::SensorSimulator::Get().Init();
+    ALOGI("SensorSimulator initialized");
     
     // Try to install hook
+    ALOGI("Calling install_hook...");
     if (install_hook()) {
-        ALOGI("Hook installation SUCCESS!");
+        ALOGI("*** Hook installation SUCCESS! ***");
     } else {
-        ALOGE("Hook installation FAILED!");
+        ALOGE("*** Hook installation FAILED! ***");
         ALOGE("Sensor simulation will run in standalone mode");
     }
     
     // Try to reload config from file
-    gait::SensorSimulator::Get().ReloadConfig();
+    ALOGI("Reloading config from file...");
+    bool config_reloaded = gait::SensorSimulator::Get().ReloadConfig();
+    ALOGI("Config reload result: %d", config_reloaded ? 1 : 0);
     
     ALOGI("Native Hook Library Loaded!");
     ALOGI("========================================");
