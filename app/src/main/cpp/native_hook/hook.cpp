@@ -9,7 +9,7 @@
 #include <sys/types.h>
 
 #include "sensor_simulator.h"
-#include "elf_util.h"
+// #include "elf_util.h" // unused - using hardcoded offset
 
 #define LOG_TAG "NativeHook"
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -78,45 +78,57 @@ extern "C" int hooked_poll(void* thiz, void* buffer, int count) {
 }
 
 static void install_poll_hook() {
-    ALOGI("Installing poll hook using ElfImg...");
+    ALOGI("Installing poll hook (hardcoded offset)...");
     
-    ElfImg elf("/system/lib64/libsensorservice.so");
-    
-    if (!elf.isValid()) {
-        ALOGE("Failed to load libsensorservice.so");
+    // Use /proc/self/maps to find base address
+    FILE* fp = fopen("/proc/self/maps", "r");
+    if (!fp) {
+        ALOGE("Failed to open /proc/self/maps");
         return;
     }
     
-    ALOGI("ELF loaded: base=%p", elf.getBase());
-    
-    // Try to find poll function using prefix lookup
-    void* pollAddr = elf.getSymbolAddressByPrefix("HidlSensorHalWrapper::poll");
-    
-    if (!pollAddr) {
-        pollAddr = elf.getSymbolAddressByPrefix("SensorDevice::poll");
-    }
-    
-    if (!pollAddr) {
-        pollAddr = elf.getSymbolAddressByPrefix("poll");
-    }
-    
-    if (pollAddr) {
-        ALOGI("Found poll at %p", pollAddr);
-        
-        int ret = DobbyHook(pollAddr, (void*)hooked_poll, (void**)&original_poll);
-        
-        if (ret == 0) {
-            ALOGI("✅ Hook SUCCESS!");
-            hook_installed = true;
-            return;
-        } else {
-            ALOGE("DobbyHook failed: %d", ret);
+    void* base = nullptr;
+    char line[512];
+    while (fgets(line, sizeof(line), fp)) {
+        if (strstr(line, "libsensorservice.so")) {
+            uint64_t start;
+            sscanf(line, "%lx-", &start);
+            base = (void*)start;
+            ALOGI("Found libsensorservice.so at base=%p", base);
+            break;
         }
-    } else {
-        ALOGE("poll symbol not found");
+    }
+    fclose(fp);
+    
+    if (!base) {
+        ALOGE("libsensorservice.so not found in maps");
+        return;
     }
     
-    ALOGE("❌ Hook installation FAILED");
+    // Hardcoded offset from dump: poll = 0x394a4
+    // void* pollAddr = (void*)((char*)base + 0x394a4);
+    
+    // ElfImg approach (commented - symbol lookup not working)
+    // ElfImg elf("/system/lib64/libsensorservice.so");
+    // if (!elf.isValid()) { ALOGE("Failed to load ELF"); return; }
+    // void* pollAddr = elf.getSymbolAddressByPrefix("HidlSensorHalWrapper::poll");
+    
+    if (false && false) {
+        // Placeholder to keep code compile
+    }
+    
+    // Use hardcoded offset directly
+    void* pollAddr = (void*)((char*)base + 0x394a4);
+    ALOGI("Using poll at %p (offset=0x394a4)", pollAddr);
+    
+    int ret = DobbyHook(pollAddr, (void*)hooked_poll, (void**)&original_poll);
+    
+    if (ret == 0) {
+        ALOGI("✅ Hook SUCCESS!");
+        hook_installed = true;
+    } else {
+        ALOGE("❌ DobbyHook failed: %d", ret);
+    }
 }
 
 extern "C" {
