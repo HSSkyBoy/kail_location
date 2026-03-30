@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <cerrno>
 #include <sys/types.h>
 
 #include "sensor_simulator.h"
@@ -27,9 +28,12 @@ static bool hook_installed = false;
 static bool route_simulation_active = false;
 static uint64_t poll_offset = 0;
 
+#define ALOGI_TO_FILE(...) ALOGI(__VA_ARGS__)
+#define ALOGE_TO_FILE(...) ALOGE(__VA_ARGS__)
+
 void setRouteSimulationActive(bool active) {
     route_simulation_active = active;
-    ALOGI("Route simulation: %s", active ? "ACTIVE" : "INACTIVE");
+    ALOGI_TO_FILE("Route simulation: %s", active ? "ACTIVE" : "INACTIVE");
     if (!active) {
         gait::SensorSimulator::Get().UpdateParams(120.0f, 0, false);
     }
@@ -52,9 +56,9 @@ static void process_sensor_events(void* buffer, int count) {
         } else if (e.type == SENSOR_TYPE_STEP_DETECTOR) {
             ALOGI("STEP_DETECTOR: %.0f", e.data[0]);
         } else if (e.type == SENSOR_TYPE_ACCELEROMETER) {
-            ALOGD("ACCEL: %.2f %.2f %.2f", e.data[0], e.data[1], e.data[2]);
+            ALOGI("ACCEL: %.2f %.2f %.2f", e.data[0], e.data[1], e.data[2]);
         } else if (e.type == SENSOR_TYPE_LINEAR_ACCELERATION) {
-            ALOGD("LINEAR_ACCEL: %.2f %.2f %.2f", e.data[0], e.data[1], e.data[2]);
+            ALOGI("LINEAR_ACCEL: %.2f %.2f %.2f", e.data[0], e.data[1], e.data[2]);
         }
     }
 }
@@ -74,12 +78,12 @@ extern "C" int hooked_poll(void* thiz, void* buffer, int count) {
 }
 
 static void install_poll_hook() {
-    ALOGI("Installing poll hook (hardcoded offset)...");
+    ALOGI_TO_FILE("Installing poll hook (hardcoded offset)...");
     
     // Use /proc/self/maps to find base address
     FILE* fp = fopen("/proc/self/maps", "r");
     if (!fp) {
-        ALOGE("Failed to open /proc/self/maps");
+        ALOGE_TO_FILE("Failed to open /proc/self/maps");
         return;
     }
     
@@ -90,14 +94,14 @@ static void install_poll_hook() {
             uint64_t start;
             sscanf(line, "%lx-", &start);
             base = (void*)start;
-            ALOGI("Found libsensorservice.so at base=%p", base);
+            ALOGI_TO_FILE("Found libsensorservice.so at base=%p", base);
             break;
         }
     }
     fclose(fp);
     
     if (!base) {
-        ALOGE("libsensorservice.so not found in maps");
+        ALOGE_TO_FILE("libsensorservice.so not found in maps");
         return;
     }
     
@@ -115,17 +119,17 @@ static void install_poll_hook() {
     
     // Use configurable offset (must be set before hook)
     if (poll_offset == 0) {
-        ALOGE("Poll offset not configured!");
+        ALOGE_TO_FILE("Poll offset not configured!");
         return;
     }
     
     void* pollAddr = (void*)((char*)base + poll_offset);
-    ALOGI("Using poll at %p (offset=0x%lx)", pollAddr, poll_offset);
+    ALOGI_TO_FILE("Using poll at %p (offset=0x%lx)", pollAddr, poll_offset);
     
     int ret = DobbyHook(pollAddr, (void*)hooked_poll, (void**)&original_poll);
     
     if (ret == 0) {
-        ALOGI("✅ Hook SUCCESS!");
+        ALOGI_TO_FILE("✅ Hook SUCCESS!");
         hook_installed = true;
     } else {
         ALOGE("❌ DobbyHook failed: %d", ret);
@@ -141,7 +145,7 @@ Java_com_kail_location_xposed_FakeLocState_nativeSetPollOffset(
     jlong offset
 ) {
     poll_offset = (uint64_t)offset;
-    ALOGI("JNI: Set poll offset: 0x%lx", poll_offset);
+    ALOGI_TO_FILE("JNI: Set poll offset: 0x%lx", poll_offset);
 }
 
 JNIEXPORT void JNICALL 
@@ -153,7 +157,7 @@ Java_com_kail_location_xposed_FakeLocState_nativeSetRouteSimulation(
     jint mode
 ) {
     bool isActive = (active != JNI_FALSE);
-    ALOGI("JNI: Set route simulation: active=%d, spm=%.2f, mode=%d", 
+    ALOGI_TO_FILE("JNI: Set route simulation: active=%d, spm=%.2f, mode=%d", 
           isActive ? 1 : 0, spm, mode);
     
     if (isActive) {
@@ -172,7 +176,7 @@ Java_com_kail_location_xposed_FakeLocState_nativeSetGaitParams(
     jint mode, 
     jboolean enable
 ) {
-    ALOGI("JNI: Set gait params spm=%.2f, mode=%d, enable=%d", spm, mode, enable ? 1 : 0);
+    ALOGI_TO_FILE("JNI: Set gait params spm=%.2f, mode=%d, enable=%d", spm, mode, enable ? 1 : 0);
     gait::SensorSimulator::Get().UpdateParams(spm, mode, enable);
 }
 
@@ -189,7 +193,7 @@ Java_com_kail_location_xposed_FakeLocState_nativeInitHook(
     JNIEnv* env, 
     jclass clazz
 ) {
-    ALOGI("JNI: init hook (ElfImg)");
+    ALOGI_TO_FILE("JNI: init hook (ElfImg)");
 
     gait::SensorSimulator::Get().Init();
     install_poll_hook();
