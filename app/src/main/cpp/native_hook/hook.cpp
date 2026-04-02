@@ -21,7 +21,9 @@
 #define SENSOR_TYPE_STEP_COUNTER 19
 #define SENSOR_TYPE_STEP_DETECTOR 18
 
-typedef long (*WriteFunc)(void*, void*);
+#define EVENT_SIZE 0x68
+
+typedef long (*WriteFunc)(void*, long);
 typedef void (*ConvertFunc)(void*, void*);
 
 static WriteFunc original_write = nullptr;
@@ -47,7 +49,7 @@ static void process_sensor_event(void* event) {
     if (!event || !route_simulation_active) return;
 
     int type = *(int*)((char*)event + 0x08);
-    uint64_t timestamp = *(uint64_t*)((char*)event + 0x10);
+    int64_t timestamp = *(int64_t*)((char*)event + 0x10);
     float data0 = *(float*)((char*)event + 0x18);
     float data1 = *(float*)((char*)event + 0x1C);
     float data2 = *(float*)((char*)event + 0x20);
@@ -73,22 +75,28 @@ static void process_sensor_event(void* event) {
     }
 }
 
-extern "C" long hooked_write(void* thiz, void* event) {
-    if (event) {
-        process_sensor_event(event);
+extern "C" long hooked_write(void* events, long count) {
+    if (events && count > 0) {
+        char* ptr = (char*)events;
+        for (long i = 0; i < count; i++) {
+            void* event = ptr + i * EVENT_SIZE;
+            process_sensor_event(event);
+        }
     }
 
     if (original_write) {
-        return original_write(thiz, event);
+        return original_write(events, count);
     }
     return 0;
 }
 
 extern "C" void hooked_convert(void* inEvent, void* outEvent) {
-    process_sensor_event(outEvent);
-
     if (original_convert) {
         original_convert(inEvent, outEvent);
+    }
+
+    if (outEvent) {
+        process_sensor_event(outEvent);
     }
 }
 
