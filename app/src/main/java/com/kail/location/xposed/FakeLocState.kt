@@ -121,57 +121,50 @@ internal object FakeLocState {
         return try {
             val file = File(path)
             if (!file.exists()) {
-                android.util.Log.e("NativeHook", "File not found: $path")
                 Pair(false, "File not found: $path")
             } else {
-                // Try to load the library using system server's loader
-                // This is done via reflection or direct System.load
-                android.util.Log.i("NativeHook", "Loading library from: $path")
                 System.load(path)
                 nativeLibraryLoaded = true
-                android.util.Log.i("NativeHook", "Library loaded, calling nativeInitHook...")
-                Log.i(TAG, "Native library loaded successfully: $path")
-                
-                // Apply pending offsets
+
                 pendingWriteOffset?.let {
                     setWriteOffset(it)
                     pendingWriteOffset = null
                 }
-                
-                // Also apply new offsets passed in
+
+                pendingConvertOffset?.let {
+                    setConvertOffset(it)
+                    pendingConvertOffset = null
+                }
+
                 if (writeOffset.isNotEmpty()) {
                     setWriteOffset(writeOffset)
                 }
-                
-                // Initialize hook and sensor simulator
+
+                if (convertOffset.isNotEmpty()) {
+                    setConvertOffset(convertOffset)
+                }
+
                 try {
                     nativeInitHook()
-                    android.util.Log.i("NativeHook", "nativeInitHook completed")
                 } catch (e: Exception) {
-                    android.util.Log.e("NativeHook", "nativeInitHook failed: ${e.message}")
                 }
-                
-                // Set current params
+
                 val spm = stepCadenceSpmRef.get()
                 val mode = gaitModeRef.get()
                 val enabled = stepEnabledRef.get()
-                android.util.Log.i("NativeHook", "Calling nativeSetGaitParams: spm=$spm, mode=$mode, enable=$enabled")
-                
+
                 nativeSetGaitParams(
                     spm,
                     mode,
                     enabled
                 )
-                
-                android.util.Log.i("NativeHook", "nativeSetGaitParams called successfully")
+
                 Pair(true, "Library loaded: $path")
             }
         } catch (e: UnsatisfiedLinkError) {
-            android.util.Log.e("NativeHook", "UnsatisfiedLinkError: ${e.message}")
             Log.e(TAG, "Failed to load native library: ${e.message}")
             Pair(false, "Load failed: ${e.message}")
         } catch (e: Exception) {
-            android.util.Log.e("NativeHook", "Exception: ${e.message}")
             Log.e(TAG, "Error loading native library: ${e.message}")
             Pair(false, "Error: ${e.message}")
         }
@@ -218,21 +211,16 @@ internal object FakeLocState {
     }
 
     fun setRouteSimulation(active: Boolean, spm: Float = 120f, mode: Int = 0) {
-        android.util.Log.i("NativeHook", "setRouteSimulation called: active=$active, spm=$spm, mode=$mode")
-        
         if (nativeLibraryLoaded) {
             try {
                 nativeSetRouteSimulation(active, spm, mode)
-                android.util.Log.i("NativeHook", "nativeSetRouteSimulation succeeded: active=$active")
             } catch (e: Exception) {
-                android.util.Log.e("NativeHook", "nativeSetRouteSimulation failed: ${e.message}")
             }
-        } else {
-            android.util.Log.w("NativeHook", "nativeLibraryLoaded is false")
         }
     }
 
     private var pendingWriteOffset: String? = null
+    private var pendingConvertOffset: String? = null
 
     fun setWriteOffset(offsetString: String) {
         try {
@@ -246,21 +234,57 @@ internal object FakeLocState {
             if (offset != null) {
                 if (nativeLibraryLoaded) {
                     nativeSetWriteOffset(offset)
-                    android.util.Log.i("NativeHook", "Write offset set to: $offsetString ($offset)")
                 } else {
                     pendingWriteOffset = offsetString
-                    android.util.Log.i("NativeHook", "Write offset saved (pending): $offsetString ($offset)")
                 }
-            } else {
-                android.util.Log.e("NativeHook", "Invalid write offset: $offsetString")
             }
         } catch (e: Exception) {
-            android.util.Log.e("NativeHook", "Failed to set write offset: ${e.message}")
+        }
+    }
+
+    fun setConvertOffset(offsetString: String) {
+        try {
+            val offset = offsetString.toLongOrNull() ?: run {
+                if (offsetString.startsWith("0x", ignoreCase = true)) {
+                    offsetString.substring(2).toLongOrNull(16)
+                } else {
+                    null
+                }
+            }
+            if (offset != null) {
+                if (nativeLibraryLoaded) {
+                    nativeSetConvertOffset(offset)
+                } else {
+                    pendingConvertOffset = offsetString
+                }
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    fun setMocking(mocking: Boolean) {
+        if (nativeLibraryLoaded) {
+            try {
+                nativeSetMocking(if (mocking) 1 else 0)
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    fun setAuthorized(authorized: Boolean) {
+        if (nativeLibraryLoaded) {
+            try {
+                nativeSetAuthorized(if (authorized) 1 else 0)
+            } catch (e: Exception) {
+            }
         }
     }
 
     // Native methods (implemented in C++)
     private external fun nativeSetWriteOffset(offset: Long)
+    private external fun nativeSetConvertOffset(offset: Long)
+    private external fun nativeSetMocking(mocking: Int)
+    private external fun nativeSetAuthorized(authorized: Int)
     private external fun nativeSetRouteSimulation(active: Boolean, spm: Float, mode: Int)
     private external fun nativeSetGaitParams(spm: Float, mode: Int, enable: Boolean)
     private external fun nativeReloadConfig(): Boolean
