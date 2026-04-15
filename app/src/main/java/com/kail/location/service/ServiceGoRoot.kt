@@ -821,6 +821,10 @@ class ServiceGoRoot : Service() {
         }
         portalStarted = false
         portalRandomKey = null
+        
+        KailLog.i(this, "ServiceGoRoot", ">>> Restoring SELinux to enforcing mode")
+        val selinuxResult = com.kail.location.utils.ShellUtils.executeCommand("setenforce 1")
+        KailLog.i(this, "ServiceGoRoot", ">>> setenforce 1 result: $selinuxResult")
     }
 
     private fun advanceAlongRoute(distanceMeters: Double) {
