@@ -178,6 +178,41 @@ void SensorSimulator::ApplyLinearAcceleration(sensors_event_t& e, double dt) {
     e.data[2] = static_cast<float>(z);
 }
 
+void SensorSimulator::ApplyGyroscope(sensors_event_t& e, double dt) {
+    (void)dt;
+    
+    const double sps = static_cast<double>(current_spm_) / 60.0;
+    const double omega = kTwoPi * sps;
+    
+    double a = 1.0, b = 1.0, c = 1.0;
+    switch (config_.mode) {
+        case GaitMode::Walk:
+            a = 2.5; b = 1.5; c = 0.8;
+            break;
+        case GaitMode::Run:
+            a = 4.0; b = 2.5; c = 1.5;
+            break;
+        case GaitMode::FastRun:
+            a = 5.5; b = 3.5; c = 2.0;
+            break;
+    }
+    
+    double t = static_cast<double>(e.timestamp) * kNsToSec;
+    
+    double base_x = std::sin(omega * t) * a;
+    double base_y = std::cos(omega * t) * b;
+    double base_z = std::sin(2.0 * omega * t) * c;
+    
+    double noise_scale = 0.1;
+    double x = base_x * (1.0 + NextSignedNoise(noise_scale));
+    double y = base_y * (1.0 + NextSignedNoise(noise_scale));
+    double z = base_z * (1.0 + NextSignedNoise(noise_scale));
+    
+    e.data[0] = static_cast<float>(x);
+    e.data[1] = static_cast<float>(y);
+    e.data[2] = static_cast<float>(z);
+}
+
     void SensorSimulator::ApplyStepCounter(sensors_event_t& e, double dt) {
         const double sps = static_cast<double>(current_spm_) / 60.0;
 
@@ -249,6 +284,9 @@ void SensorSimulator::ProcessSensorEvents(sensors_event_t* events, size_t count)
             case TYPE_ACCELEROMETER:
                 ApplyAccelerometer(e, dt);
                 break;
+            case TYPE_GYROSCOPE:
+                ApplyGyroscope(e, dt);
+                break;
             case TYPE_LINEAR_ACCELERATION:
                 ApplyLinearAcceleration(e, dt);
                 break;
@@ -284,6 +322,9 @@ void SensorSimulator::ProcessSensorEvent(sensors_event_t& e) {
     switch (e.type) {
         case TYPE_ACCELEROMETER:
             ApplyAccelerometer(e, dt);
+            break;
+        case TYPE_GYROSCOPE:
+            ApplyGyroscope(e, dt);
             break;
         case TYPE_LINEAR_ACCELERATION:
             ApplyLinearAcceleration(e, dt);

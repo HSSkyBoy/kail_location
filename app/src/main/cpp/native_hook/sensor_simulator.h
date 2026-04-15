@@ -8,6 +8,10 @@
 #define TYPE_ACCELEROMETER 1
 #endif
 
+#ifndef TYPE_GYROSCOPE
+#define TYPE_GYROSCOPE 4
+#endif
+
 #ifndef TYPE_LINEAR_ACCELERATION
 #define TYPE_LINEAR_ACCELERATION 10
 #endif
@@ -72,6 +76,7 @@ private:
 
     void ApplyAccelerometer(sensors_event_t& e, double dt);
     void ApplyLinearAcceleration(sensors_event_t& e, double dt);
+    void ApplyGyroscope(sensors_event_t& e, double dt);
     void ApplyStepCounter(sensors_event_t& e, double dt);
     void ApplyStepDetector(sensors_event_t& e, double dt);
 
