@@ -49,40 +49,6 @@ class GoApplication : Application() {
         val logEnabled = prefs.getBoolean("setting_log_enabled", false)
         android.util.Log.d("GoApplication", "日志开关状态: $logEnabled")
 
-        kotlin.runCatching {
-            android.util.Log.d("GoApplication", "开始加载 kail_gait_sim 库")
-            KailLog.i(this, APP_NAME, "开始加载 kail_gait_sim 库")
-            System.loadLibrary("kail_gait_sim")
-            android.util.Log.d("GoApplication", "kail_gait_sim 库加载成功")
-            KailLog.i(this, APP_NAME, "kail_gait_sim 库加载成功")
-
-            // Initialize GaitSimulator with config path
-            val configDir = getExternalFilesDir("config")
-            if (configDir != null && !configDir.exists()) {
-                configDir.mkdirs()
-                android.util.Log.d("GoApplication", "创建配置目录: ${configDir.absolutePath}")
-                KailLog.d(this, APP_NAME, "创建配置目录: ${configDir.absolutePath}")
-            }
-
-            val configPath = configDir?.absolutePath + "/gait_config.txt"
-            android.util.Log.d("GoApplication", "准备初始化 GaitSimulator，配置文件路径: $configPath")
-            KailLog.d(this, APP_NAME, "准备初始化 GaitSimulator，配置文件路径: $configPath")
-
-            val initResult = GaitSimulator.init(configPath)
-            if (initResult == 0) {
-                android.util.Log.d("GoApplication", "GaitSimulator 初始化成功")
-                KailLog.i(this, APP_NAME, "GaitSimulator 初始化成功")
-            } else {
-                android.util.Log.e("GoApplication", "GaitSimulator 初始化失败，返回码: $initResult")
-                KailLog.e(this, APP_NAME, "GaitSimulator 初始化失败，返回码: $initResult")
-            }
-        }.onFailure {
-            android.util.Log.e("GoApplication", "加载 kail_gait_sim 失败: ${it.message}")
-            android.util.Log.e("GoApplication", "异常详情: ${it.stackTraceToString()}")
-            KailLog.e(this, APP_NAME, "加载 kail_gait_sim 失败: ${it.message}")
-            KailLog.e(this, APP_NAME, "异常详情: ${it.stackTraceToString()}")
-        }
-
         mDefaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             writeCrashToFile(throwable)
