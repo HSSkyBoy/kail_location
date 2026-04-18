@@ -50,4 +50,11 @@ https://github.com/Hilaver/MockGPS
 
 TVvudxmNTwzRFe3z7ts9srZE1srkqXgmxm
 
+## License
+
+本项目基于 GNU 通用公共许可证 v3.0（GPL-3.0）开源。
+
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+
+
 
